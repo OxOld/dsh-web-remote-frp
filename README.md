@@ -168,7 +168,7 @@ config:
 
 - **frps 连接**：服务器地址 / 端口 / auth.token / 穿透模式（tcp、http）
 - **tcp 模式**：公网端口；**http 模式**：自定义域名 / subdomain / vhostHTTPPort
-- **frpc 路径 + 一键下载**：点「一键下载」自动识别当前系统与架构（darwin / linux / windows × amd64 / arm64 / 386…），下载对应的 frp 最新版并**自动填入路径**；若已存在 frpc（配置路径 / PATH / toolsDir）则直接复用，不重复下载
+- **frpc 路径 + 一键下载 / 定位文件**：点「一键下载」自动识别当前系统与架构（darwin / linux / windows × amd64 / arm64…），下载对应的 frp 最新版（自动解压）并**自动填入路径**；内置国内加速镜像（fengxiaozi，6 平台直链），下载源顺序：GitHub → 加速镜像 → ghfast；点「定位文件」一键在 Finder / 资源管理器中显示 frpc；若已存在 frpc（配置路径 / PATH / toolsDir）则直接复用，不重复下载
 - **自定义下载地址**：内网 / 自建镜像直连
 
 点「保存并重启」后配置写入 `toolsDir/frp-config.json` 并立即重建隧道；
@@ -205,7 +205,7 @@ config:
 A: frp 不像 Cloudflare Quick Tunnel 有公共隧道，必须有自己的 frps 服务器。在面板「设置」页填写 frps 信息并保存（或配置 cordis.patch.yml）；配置前局域网直连仍然可用。
 
 **Q: frpc 自动下载失败？**
-A: 首次启动需要下载 frp 发行版（约 13MB）：默认直连 GitHub Releases，失败自动回退镜像（ghfast.top）。仍失败时可手动下载 [frp 发行版](https://github.com/fatedier/frp/releases) 中的 frpc 放入 `toolsDir`（默认 `$DSH_HOME/tools`），或配置 `frpcPath` / `frpDownloadUrl`（自建镜像）。
+A: 首次启动需要下载 frp 发行版（约 13MB），下载源按顺序自动切换：① GitHub Releases 直连（最新版）→ ② 国内加速镜像（fengxiaozi，内置 6 平台直链，无需 GitHub API）→ ③ ghfast.top 代理。均失败时可手动下载 [frp 发行版](https://github.com/fatedier/frp/releases) 中的 frpc 放入 `toolsDir`（默认 `$DSH_HOME/tools`），或配置 `frpcPath` / `frpDownloadUrl`（自建镜像）。
 
 **Q: 启动失败"auth token is incorrect"？**
 A: `frpAuthToken` 与 frps 的 `auth.token` 不一致。

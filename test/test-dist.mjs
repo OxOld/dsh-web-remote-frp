@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert';
 import { createHash, createHmac } from 'node:crypto';
-import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe } from '../lib/index.mjs';
+import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe, FRP_MIRROR_URLS } from '../lib/index.mjs';
 
 // ─────────── 机器人通道纯函数断言 ───────────
 {
@@ -55,6 +55,17 @@ import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buil
   dedupe('b'); dedupe('c'); // 挤出 'a'
   assert.strictEqual(dedupe('a'), false, 'evicted after cap');
   console.log('0i. makeDedupe OK');
+
+  // frp 加速镜像映射：6 平台齐全且与包名后缀一致
+  const mirrorKeys = Object.keys(FRP_MIRROR_URLS).sort();
+  assert.deepStrictEqual(mirrorKeys, ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64']);
+  for (const [k, u] of Object.entries(FRP_MIRROR_URLS)) {
+    const [osN, archN] = k.split('_');
+    assert.ok(u.includes('frp_') && u.includes(osN) && u.includes(archN), 'mirror url matches platform: ' + k);
+    assert.ok(u.endsWith('.tar.gz') !== u.endsWith('.zip'), 'single archive ext: ' + k);
+    if (osN === 'windows') assert.ok(u.endsWith('.zip'), 'windows uses zip');
+  }
+  console.log('0j. FRP_MIRROR_URLS OK');
 }
 
 const TARGET = 18080;
