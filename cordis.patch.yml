@@ -1,0 +1,7 @@
+# dsh-web-remote-frp — DSH 手机/外网远程访问插件（frp 内网穿透版）
+# 作为 bundle 包：profile package.json 的 dsh.profile.bundles 加入本包名即生效；
+# 也可以手动在 profile 的 cordis.patch.yml 里 insert 本行（name 解析自 profile node_modules）。
+# 注意：公网穿透需在 config 中配置 frps 服务器参数（至少 frpServerAddr），否则仅局域网直连可用。
+- insert:
+    - id: web-remote-frp
+      name: 'dsh-web-remote-frp'
