@@ -108,6 +108,35 @@ const QQ_PORT = 18083;
   assert.ok(!tomlHttp.includes('auth.'), 'no auth block when token empty');
   console.log('0b. buildFrpcToml(http) OK');
 
+  const tomlTls = buildFrpcToml({
+    serverAddr: 'frps.example.com',
+    serverPort: 7000,
+    authToken: 'secret',
+    proxyName: 'dsh-tls',
+    proxyType: 'tcp',
+    localPort: 3081,
+    remotePort: 13080,
+    tlsEnable: true,
+    tlsCertFile: '/certs/client.crt',
+    tlsKeyFile: '/certs/client.key',
+    tlsTrustedCaFile: '/certs/ca.crt',
+    tlsServerName: 'frps.example.com',
+  });
+  assert.ok(tomlTls.includes('transport.tls.enable = true'), 'tls enable');
+  assert.ok(tomlTls.includes('transport.tls.certFile = "/certs/client.crt"'), 'tls certFile');
+  assert.ok(tomlTls.includes('transport.tls.keyFile = "/certs/client.key"'), 'tls keyFile');
+  assert.ok(tomlTls.includes('transport.tls.trustedCaFile = "/certs/ca.crt"'), 'tls trustedCaFile');
+  assert.ok(tomlTls.includes('transport.tls.serverName = "frps.example.com"'), 'tls serverName');
+  // 未配置 TLS 时不输出 transport.tls 段
+  assert.ok(!toml.includes('transport.tls'), 'no tls section by default');
+  // 仅禁用
+  const tomlTlsOff = buildFrpcToml({ serverAddr: 's', serverPort: 7000, proxyName: 'p', proxyType: 'tcp', localPort: 1, remotePort: 2, tlsEnable: false });
+  assert.ok(tomlTlsOff.includes('transport.tls.enable = false'), 'tls disable');
+  // 只给 CA（enable 省略，frp 默认启用 TLS）
+  const tomlCaOnly = buildFrpcToml({ serverAddr: 's', serverPort: 7000, proxyName: 'p', proxyType: 'tcp', localPort: 1, remotePort: 2, tlsTrustedCaFile: '/ca.crt' });
+  assert.ok(tomlCaOnly.includes('transport.tls.trustedCaFile = "/ca.crt"') && !tomlCaOnly.includes('transport.tls.enable'), 'ca-only without enable');
+  console.log('0b2. buildFrpcToml(tls) OK');
+
   assert.strictEqual(
     computeFrpUrl({ frpProxyType: 'tcp', frpServerAddr: '1.2.3.4', frpRemotePort: 13080 }),
     'http://1.2.3.4:13080',

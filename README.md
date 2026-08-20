@@ -129,6 +129,11 @@ dsh web
 | `frpProxyName` | `''` | 自定义代理名；留空随机生成（多机共用一台 frps 不冲突） |
 | `frpcPath` | `''` | 指定 frpc 路径；留空自动探测 PATH / 自动下载 |
 | `frpDownloadUrl` | `''` | 自定义 frp 压缩包下载地址（设置后跳过 GitHub，直连该地址，适合内网 / 自建镜像） |
+| `frpTlsEnable` | `''` | frpc↔frps TLS 开关：留空 = frp ≥0.50 默认行为（自动启用）；`'true'` 强制启用 / `'false'` 禁用 |
+| `frpTlsCertFile` | `''` | TLS 客户端证书 `transport.tls.certFile`（双向认证 / 自定义证书，可选） |
+| `frpTlsKeyFile` | `''` | TLS 客户端私钥 `transport.tls.keyFile`（与证书配对，可选） |
+| `frpTlsTrustedCaFile` | `''` | TLS CA 证书 `transport.tls.trustedCaFile`（校验自签 frps 服务端证书，可选） |
+| `frpTlsServerName` | `''` | TLS `transport.tls.serverName`（校验服务端证书主机名，留空用 serverAddr） |
 | `targetPort` | `3080` | DSH 自身端口 |
 | `httpPortStart` | `3081` | 局域网 HTTP 起始端口（自动跳过占用） |
 | `httpsPortStart` | `3082` | 局域网 HTTPS 起始端口 |
@@ -167,6 +172,7 @@ config:
 面板第四个标签页「设置」可直接填写并持久化配置：
 
 - **frps 连接**：服务器地址 / 端口 / auth.token / 穿透模式（tcp、http）
+- **frp TLS 证书**：TLS 开关（默认跟随 frp ≥0.50 自动启用）/ 客户端证书 certFile / 私钥 keyFile / CA 证书 trustedCaFile（校验自签 frps）/ serverName，写入生成的 `transport.tls.*` 段
 - **tcp 模式**：公网端口；**http 模式**：自定义域名 / subdomain / vhostHTTPPort
 - **frpc 路径 + 一键下载 / 定位文件**：点「一键下载」自动识别当前系统与架构（darwin / linux / windows × amd64 / arm64…），下载对应的 frp 最新版（自动解压）并**自动填入路径**；内置国内加速镜像（fengxiaozi，6 平台直链），下载源顺序：GitHub → 加速镜像 → ghfast；点「定位文件」一键在 Finder / 资源管理器中显示 frpc；若已存在 frpc（配置路径 / PATH / toolsDir）则直接复用，不重复下载
 - **自定义下载地址**：内网 / 自建镜像直连
