@@ -137,6 +137,26 @@ const QQ_PORT = 18083;
   assert.ok(tomlCaOnly.includes('transport.tls.trustedCaFile = "/ca.crt"') && !tomlCaOnly.includes('transport.tls.enable'), 'ca-only without enable');
   console.log('0b2. buildFrpcToml(tls) OK');
 
+  const tomlHttps = buildFrpcToml({
+    serverAddr: 'frps.example.com',
+    serverPort: 7000,
+    proxyName: 'dsh-https',
+    proxyType: 'https',
+    localPort: 3081,
+    customDomains: ['dsh.example.com'],
+    httpsCertFile: '/certs/dsh.crt',
+    httpsKeyFile: '/certs/dsh.key',
+  });
+  assert.ok(tomlHttps.includes('type = "https"'), 'https proxy type');
+  assert.ok(tomlHttps.includes('customDomains = ["dsh.example.com"]'), 'https customDomains');
+  assert.ok(tomlHttps.includes('[proxies.plugin]'), 'plugin section');
+  assert.ok(tomlHttps.includes('type = "https2http"'), 'https2http plugin');
+  assert.ok(tomlHttps.includes('localAddr = "127.0.0.1:3081"'), 'plugin localAddr');
+  assert.ok(tomlHttps.includes('crtPath = "/certs/dsh.crt"'), 'plugin crtPath');
+  assert.ok(tomlHttps.includes('keyPath = "/certs/dsh.key"'), 'plugin keyPath');
+  assert.ok(!tomlHttps.includes('localIP'), 'no localIP in plugin mode');
+  console.log('0b3. buildFrpcToml(https/https2http) OK');
+
   assert.strictEqual(
     computeFrpUrl({ frpProxyType: 'tcp', frpServerAddr: '1.2.3.4', frpRemotePort: 13080 }),
     'http://1.2.3.4:13080',
@@ -150,6 +170,14 @@ const QQ_PORT = 18083;
     'http://dsh.frp.example.com:8080',
   );
   assert.strictEqual(computeFrpUrl({ frpProxyType: 'http', frpCustomDomains: [], frpSubdomain: 'dsh', frpSubdomainHost: '' }), null);
+  assert.strictEqual(
+    computeFrpUrl({ frpProxyType: 'https', frpCustomDomains: ['dsh.example.com'], frpVhostHTTPSPort: 443 }),
+    'https://dsh.example.com',
+  );
+  assert.strictEqual(
+    computeFrpUrl({ frpProxyType: 'https', frpCustomDomains: ['dsh.example.com'], frpVhostHTTPSPort: 8443 }),
+    'https://dsh.example.com:8443',
+  );
   console.log('0c. computeFrpUrl OK');
 
   assert.deepStrictEqual(normalizeDomains('a.com, b.com c.com'), ['a.com', 'b.com', 'c.com']);
