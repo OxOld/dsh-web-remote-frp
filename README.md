@@ -169,7 +169,7 @@ config:
 
 - **frps 连接**：服务器地址 / 端口 / auth.token / 穿透模式（tcp、http）
 - **tcp 模式**：公网端口；**http 模式**：自定义域名 / subdomain / vhostHTTPPort
-- **frpc 路径**：留空自动探测 PATH 并自动下载；也可指定本地路径
+- **frpc 路径 + 一键下载**：点「一键下载」自动识别当前系统与架构（darwin / linux / windows × amd64 / arm64 / 386…），下载对应的 frp 最新版并**自动填入路径**；若已存在 frpc（配置路径 / PATH / toolsDir）则直接复用，不重复下载
 - **自定义下载地址**：内网 / 自建镜像直连
 
 点「保存并重启」后配置写入 `toolsDir/frp-config.json` 并立即重建隧道；
