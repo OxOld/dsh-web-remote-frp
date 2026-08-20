@@ -7,8 +7,55 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert';
-import { createHash } from 'node:crypto';
-import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains } from '../lib/index.mjs';
+import { createHash, createHmac } from 'node:crypto';
+import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe } from '../lib/index.mjs';
+
+// ─────────── 机器人通道纯函数断言 ───────────
+{
+  // 钉钉签名
+  const secret = 'ding-secret-123';
+  const ts = String(Date.now());
+  const sign = createHmac('sha256', secret).update(ts + '\n' + secret).digest('base64');
+  assert.strictEqual(verifyDingtalkSign(ts, secret, sign), true, 'dingtalk sign valid');
+  assert.strictEqual(verifyDingtalkSign(ts, secret, 'wrong'), false, 'dingtalk sign invalid');
+  console.log('0e. verifyDingtalkSign OK');
+
+  // 飞书事件加解密
+  const fk = 'feishu-encrypt-key-test';
+  const obj = { hello: '飞书', n: 42 };
+  const enc = feishuEncrypt(fk, obj);
+  const dec = feishuDecrypt(fk, enc);
+  assert.deepStrictEqual(dec, obj, 'feishu roundtrip');
+  console.log('0f. feishuEncrypt/Decrypt roundtrip OK');
+
+  // 企业微信签名 + 消息加解密
+  const wtoken = 'wecom-token';
+  const wts = '1700000000';
+  const wnonce = 'nonce1';
+  const sig = wecomSignature(wtoken, wts, wnonce, 'extra');
+  assert.strictEqual(sig, createHash('sha1').update([wtoken, wts, wnonce, 'extra'].sort().join('')).digest('hex'), 'wecom signature');
+  const aesKey43 = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'; // 43 位
+  const inner = '<xml><Content><![CDATA[你好]]></Content></xml>';
+  const encW = wecomEncrypt(aesKey43, 'corpid-1', inner);
+  const decW = wecomDecrypt(aesKey43, encW);
+  assert.strictEqual(decW.message, inner, 'wecom decrypt message');
+  assert.strictEqual(decW.receiveid, 'corpid-1', 'wecom decrypt receiveid');
+  console.log('0g. wecomSignature/Encrypt/Decrypt roundtrip OK');
+
+  // XML 取值
+  assert.strictEqual(xmlExtract('<xml><Content><![CDATA[hello]]></Content></xml>', 'Content'), 'hello');
+  assert.strictEqual(xmlExtract('<xml><MsgId>123</MsgId></xml>', 'MsgId'), '123');
+  assert.strictEqual(xmlExtract('<xml><a>1</a></xml>', 'b'), null);
+  console.log('0h. xmlExtract OK');
+
+  // 去重器
+  const dedupe = makeDedupe(2);
+  assert.strictEqual(dedupe('a'), false);
+  assert.strictEqual(dedupe('a'), true);
+  dedupe('b'); dedupe('c'); // 挤出 'a'
+  assert.strictEqual(dedupe('a'), false, 'evicted after cap');
+  console.log('0i. makeDedupe OK');
+}
 
 const TARGET = 18080;
 const HTTP_PORT = 18081;

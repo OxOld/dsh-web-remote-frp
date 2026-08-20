@@ -19,7 +19,7 @@
 | 公网地址 | 随机 `*.trycloudflare.com`，每次重启变化 | 固定：`http://服务器IP:端口` 或你的域名 |
 | 需要 | 无需账号、无需服务器 | 一台有公网 IP 的服务器跑 frps |
 | 穿透模式 | 仅 HTTPS 隧道 | `tcp`（远程端口直连）/ `http`（域名 + vhost） |
-| 其余功能 | — | 完全一致：局域网直连、token 鉴权、gzip、面板、QQ/微信机器人 |
+| 其余功能 | — | 完全一致：局域网直连、token 鉴权、gzip、面板；机器人扩展至 6 通道（微信/QQ/Telegram/钉钉/飞书/企业微信） |
 
 > 两个插件的 DOM id、HTTP 路由、localStorage 键全部不同前缀（`frprm-` / `/frpremote/*`），理论上可同时安装互不冲突。
 
@@ -32,8 +32,7 @@
 | 🔒 **安全认证** | 每次启动生成随机令牌；HttpOnly Cookie；局域网可免 token |
 | ⚡ **性能加速** | 反向代理自动 gzip 压缩，大历史会话加载更快 |
 | 📱 **侧边栏图标** | 手机快捷按钮常驻侧栏，刷新不消失 |
-| 🤖 **微信机器人** | iLink 协议直连微信，支持 AI 对话、会话控制、模型切换 |
-| 💬 **QQ 机器人** | NapCat OneBot 11 反向 WebSocket（施工中） |
+| 🤖 **六大机器人通道** | 微信 / QQ（NapCat）/ 纸飞机 Telegram / 钉钉 / 飞书 / 企业微信，统一命令路由，面板内一键复制回调地址 |
 
 ## 🚀 快速开始
 
@@ -177,18 +176,28 @@ config:
 
 **配置优先级**：面板设置（frp-config.json）＞ cordis.patch.yml 的 config ＞ 内置默认值；面板中留空的项自动沿用 YAML 值。
 
-## 🤖 微信 / QQ 机器人
+## 🤖 机器人通道（6 通道统一命令路由）
 
-与原版一致：
+面板「机器人」标签页选择通道，查看接入指引 / 回调地址 / 连接状态。所有通道共用同一套命令：
 
-**微信（iLink 协议）** — 面板「机器人」标签页扫码绑定，支持：
 - `/链接` — 获取公网链接（未启动自动开启）
 - `/停止远程` — 关闭远程服务
 - `/会话列表` `/选择 N` `/当前会话` `/历史内容` — 会话管理
-- `/当前模型` `/切换模型` `/选强度 N` — 模型切换
-- 直接发送内容 → 转发到选中会话并回传结果
+- `/当前模型` `/切换模型` — 模型切换
+- 直接发送内容 → 转发到选中 DSH 会话并回传 AI 结果
+- 发送「帮助」查看全部命令
 
-**QQ（NapCat OneBot 11 反向 WS）** — 施工中，连接后可发「给我链接」取公网地址。
+| 通道 | 接入方式 | 需要的配置（面板「设置」页填写） |
+|---|---|---|
+| **微信** | iLink 协议，面板扫码绑定 | 无需配置 |
+| **QQ** | NapCat OneBot 11 反向 WS，面板显示 `ws://` 地址填入 NapCat；支持私聊 + 群聊（群内仅响应 / 命令） | 无需配置 |
+| **纸飞机 Telegram** | Bot API 长轮询（出站连接，无需公网回调） | `tgBotToken`（@BotFather 获取） |
+| **钉钉** | 企业内部机器人 outgoing HTTP 回调，面板提供回调地址（HMAC-SHA256 签名校验，sessionWebhook 回复） | `dingtalkAppSecret` |
+| **飞书** | 自建应用事件订阅回调（im.message.receive_v1，支持 Encrypt Key 加密事件） | `feishuAppId` `feishuAppSecret` `feishuVerificationToken`（`feishuEncryptKey` 可选） |
+| **企业微信** | 自建应用接收消息回调（GET 验证 + AES-256 加密消息，主动回复 API） | `wecomCorpId` `wecomCorpSecret` `wecomAgentId` `wecomToken` `wecomEncodingAESKey` |
+
+> 钉钉 / 飞书 / 企业微信的回调地址 = 公网链接 + `/frpremote/bot/<通道>`，面板通道详情页可一键复制；因此需要先启动远程服务（frp 隧道）。
+> 所有通道均带消息去重（平台重试不会重复回复）。
 
 ## ❓ 常见问题
 
