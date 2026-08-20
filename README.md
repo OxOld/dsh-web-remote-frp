@@ -163,6 +163,20 @@ config:
 
 > 公网访问始终需要 token；「换链接」会重新生成 token。frpc 掉线时面板会提示，点「停止」再「启动」即可重连。
 
+## 🛠 面板「设置」页（免改 YAML 配置）
+
+面板第四个标签页「设置」可直接填写并持久化配置：
+
+- **frps 连接**：服务器地址 / 端口 / auth.token / 穿透模式（tcp、http）
+- **tcp 模式**：公网端口；**http 模式**：自定义域名 / subdomain / vhostHTTPPort
+- **frpc 路径**：留空自动探测 PATH 并自动下载；也可指定本地路径
+- **自定义下载地址**：内网 / 自建镜像直连
+
+点「保存并重启」后配置写入 `toolsDir/frp-config.json` 并立即重建隧道；
+「清除本地配置」恢复为 `cordis.patch.yml` 中的值。
+
+**配置优先级**：面板设置（frp-config.json）＞ cordis.patch.yml 的 config ＞ 内置默认值；面板中留空的项自动沿用 YAML 值。
+
 ## 🤖 微信 / QQ 机器人
 
 与原版一致：
@@ -179,7 +193,7 @@ config:
 ## ❓ 常见问题
 
 **Q: 面板提示"未配置 frpServerAddr"？**
-A: frp 不像 Cloudflare Quick Tunnel 有公共隧道，必须有自己的 frps 服务器。配置 `frpServerAddr` 后重启；配置前局域网直连仍然可用。
+A: frp 不像 Cloudflare Quick Tunnel 有公共隧道，必须有自己的 frps 服务器。在面板「设置」页填写 frps 信息并保存（或配置 cordis.patch.yml）；配置前局域网直连仍然可用。
 
 **Q: frpc 自动下载失败？**
 A: 首次启动需要下载 frp 发行版（约 13MB）：默认直连 GitHub Releases，失败自动回退镜像（ghfast.top）。仍失败时可手动下载 [frp 发行版](https://github.com/fatedier/frp/releases) 中的 frpc 放入 `toolsDir`（默认 `$DSH_HOME/tools`），或配置 `frpcPath` / `frpDownloadUrl`（自建镜像）。
