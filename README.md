@@ -130,9 +130,9 @@ dsh web
 | `frpcPath` | `''` | 指定 frpc 路径；留空自动探测 PATH / 自动下载 |
 | `frpDownloadUrl` | `''` | 自定义 frp 压缩包下载地址（设置后跳过 GitHub，直连该地址，适合内网 / 自建镜像） |
 | `frpTlsEnable` | `''` | frpc↔frps TLS 开关：留空 = frp ≥0.50 默认行为（自动启用）；`'true'` 强制启用 / `'false'` 禁用 |
-| `frpTlsCertFile` | `''` | TLS 客户端证书 `transport.tls.certFile`（双向认证 / 自定义证书，可选） |
-| `frpTlsKeyFile` | `''` | TLS 客户端私钥 `transport.tls.keyFile`（与证书配对，可选） |
-| `frpTlsTrustedCaFile` | `''` | TLS CA 证书 `transport.tls.trustedCaFile`（校验自签 frps 服务端证书，可选） |
+| `frpTlsCertFile` | `''` | TLS 客户端证书 `transport.tls.certFile`：填文件路径，或直接粘贴 PEM 内容（保存时自动生成文件，可选） |
+| `frpTlsKeyFile` | `''` | TLS 客户端私钥 `transport.tls.keyFile`：文件路径或粘贴 PEM（自动落盘，权限 0600，可选） |
+| `frpTlsTrustedCaFile` | `''` | TLS CA 证书 `transport.tls.trustedCaFile`（校验自签 frps）：文件路径或粘贴 CA PEM（自动落盘，可选） |
 | `frpTlsServerName` | `''` | TLS `transport.tls.serverName`（校验服务端证书主机名，留空用 serverAddr） |
 | `targetPort` | `3080` | DSH 自身端口 |
 | `httpPortStart` | `3081` | 局域网 HTTP 起始端口（自动跳过占用） |
