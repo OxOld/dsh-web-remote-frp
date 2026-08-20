@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-remote-frp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "DSH 手机/外网远程访问插件（frp 版）：frp 内网穿透公网隧道（frpc 一键下载）+ token 鉴权代理 + gzip 压缩 + 局域网 HTTP/HTTPS 直连 + 常驻手机图标面板 + 六大机器人通道（微信/QQ/Telegram/钉钉/飞书/企业微信）。",
   "type": "module",
   "main": "lib/index.mjs",
