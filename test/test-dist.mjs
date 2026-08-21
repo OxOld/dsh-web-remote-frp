@@ -304,6 +304,35 @@ await qq.start(QQ_PORT);
 console.log('7. QQ bridge listening on', QQ_PORT);
 qq.close();
 
+// 0k. 纯 JS 二维码生成器（结构 + 确定性；可解码性由开发期 jsQR 回环验证）
+{
+  const src = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const m = src.match(/const QR_RUNTIME = `([\s\S]*?)`;/);
+  assert.ok(m, 'QR_RUNTIME block found');
+  const frprmQr = new Function(m[1] + '; return frprmQr;')();
+  const qrCases = ['HELLO', 'http://192.168.5.3:3081/?token=abcDEF123', '中文 Mixed 0123456789'];
+  for (const text of qrCases) {
+    const qr = frprmQr(text);
+    assert.strictEqual(qr.size, qr.version * 4 + 17, 'size = v*4+17');
+    const corner = (ox, oy) => {
+      for (let y = 0; y < 7; y++) {
+        for (let x = 0; x < 7; x++) {
+          const border = (x === 0 || x === 6 || y === 0 || y === 6);
+          const core = (x >= 2 && x <= 4 && y >= 2 && y <= 4);
+          assert.strictEqual(qr.modules[oy + y][ox + x], border || core, 'finder pixel at ' + (ox + x) + ',' + (oy + y));
+        }
+      }
+    };
+    corner(0, 0); corner(qr.size - 7, 0); corner(0, qr.size - 7);
+    for (let i = 8; i < qr.size - 8; i++) {
+      assert.strictEqual(qr.modules[6][i], i % 2 === 0, 'timing row alternates');
+      assert.strictEqual(qr.modules[i][6], i % 2 === 0, 'timing col alternates');
+    }
+    assert.deepStrictEqual(frprmQr(text).modules, qr.modules, 'deterministic output');
+  }
+  console.log('0k. QR encoder structure OK');
+}
+
 proxy.close();
 target.close();
 fs.rmSync(tmpDir, { recursive: true, force: true });
