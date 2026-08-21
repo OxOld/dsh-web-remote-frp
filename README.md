@@ -235,6 +235,22 @@ ss -tlnp | grep -E '308[12]'
 
 > 兜底：插件默认 `autoStart: true`，重启 DSH 也会自动开启局域网；且 DSH 本体的 3080 端口始终在局域网可达（无 token 体系），面板永远可以在 `http://<服务器IP>:3080` 的 GUI 里打开。
 
+### 获取当前 token（命令行）
+
+token 在每次插件启动时随机生成。以下场景需要取当前值：进程重启后、设备访问被 403、拼公网链接、手动配置扫码：
+
+```bash
+curl -s http://127.0.0.1:3080/frpremote/info | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])"
+```
+
+用法：
+
+- **公网链接**：`http(s)://<你的公网地址>/?token=<token>`（首次访问自动换成 HttpOnly Cookie）
+- **设备被 403**：用**无痕窗口**打开 `http://<服务器IP>:3081`（局域网免 token 直接进），或清除该站点旧 Cookie（`dshr_token`）
+- 也可打开面板 GUI 重新扫二维码——二维码永远携带当前 token
+
+> **token 变更时机**：进程重启、`renew` 动作、保存配置重启。token 一变，所有旧链接 / 旧 Cookie 立即失效；**遇到 403 先怀疑 token 变了**。
+
 ## 🛠 面板「设置」页（免改 YAML 配置）
 
 面板第四个标签页「设置」可直接填写并持久化配置：
@@ -275,10 +291,84 @@ ss -tlnp | grep -E '308[12]'
 > 钉钉 / 飞书 / 企业微信的回调地址 = 公网链接 + `/frpremote/bot/<通道>`，面板通道详情页可一键复制；因此需要先启动远程服务（frp 隧道）。
 > 所有通道均带消息去重（平台重试不会重复回复）。
 
+## 🚑 故障排查：突然连不上了（真实案例）
+
+**症状**：本来正常运行，突然局域网和公网都连不上。
+
+### 第一步：分清「假死」（403）还是「真死」（进程/端口没了）
+
+```bash
+ps aux | grep "dsh web" | grep -v grep                          # ① 进程在吗
+ss -tlnp | grep -E '308[0-9]'                                   # ② 端口在监听吗（3080 本体 / 3081、3082 代理）
+curl -m 5 -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3080/   # ③ DSH 本体响应
+curl -m 5 -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3081/   # ④ 代理响应（无 token 返回 403 是正常行为！）
+dmesg -T | grep -i -E "oom|killed process" | tail -5            # ⑤ 是否被系统因内存不足杀掉
+```
+
+| 现象 | 结论与处理 |
+|---|---|
+| 进程在 + 端口在 + ④ 返回 **403** | **假死**：进程健康，是 token / Cookie 失效 → 见下节 |
+| 无进程 + ⑤ 有 oom 记录 | 内存不足被杀 → 重启并排查内存占用 |
+| 无进程 + 无 oom | 崩溃退出 → 看日志（`/var/log/supervisor/dsh-web.out.log` 等）找退出原因 |
+| 端口在但 ③ 超时 | DSH 内部挂起 → 重启 |
+| 全在但设备连不上 | 防火墙 / 设备与服务器不同网段；先 `curl http://<服务器IP>:3081/?token=<token>` 本机自测 |
+
+> 注意：`curl http://127.0.0.1:3081/` 返回 403 是**正确行为**（环回流量视为隧道、永远要 token），不能据此判断故障；同理服务器 curl 自己的网卡 IP 偶尔受 hairpin 干扰，以**真实设备**访问为准。
+
+### 最常见根因：进程重启过 → token 换新 → 旧 Cookie 全部 403
+
+插件每次启动重新生成 token。一旦守护进程（supervisor/systemd）把服务重启过，设备里存的旧 Cookie、收藏夹旧链接会全部被 403，表象就是「突然连不上」。日志特征：错误日志里刷满
+
+```
+[dsh-web-remote-frp] 403 GET / cookie=***
+[dsh-web-remote-frp] 403 GET /manifest.webmanifest cookie=***
+```
+
+**恢复**：局域网用无痕窗口直开 `http://<服务器IP>:3081`；公网用新 token 拼链接（取法见「获取当前 token」）。同时查日志中段的**启动横幅**（`$ node ... bin.ts web`）确认发生过重启，并往下找重启原因。
+
+### supervisor / systemd 部署两个坑（崩溃循环实录）
+
+非交互环境下跑 `pnpm dsh web` 有两个坑，都会导致**无限重启**（而每次重启又会换 token，叠加成"突然连不上"）：
+
+**坑 1：`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`**
+`pnpm dsh web` 启动前做依赖状态检查，发现过期会尝试 `pnpm install` 重建；没有交互终端时 pnpm 拒绝继续，退出码 1。
+→ 进程环境加 `CI=true`。
+
+**坑 2：`koffi install: Error: Missing HOME environment variable`**
+supervisor 的 `environment=` 是**整体替换**（不继承系统环境），缺 `HOME` 时原生依赖（koffi）的安装脚本直接失败。
+→ environment 显式加 `HOME="/home/<运行用户>"`。
+
+**正确的 supervisor 配置示例**：
+
+```ini
+[program:dsh-web]
+command=/www/server/nodejs/v24.19.0/bin/pnpm dsh web
+directory=<DSH checkout 路径>
+environment=CI="true",HOME="/home/www",PATH=/www/server/nodejs/v24.19.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/supervisor/dsh-web.err.log
+stdout_logfile=/var/log/supervisor/dsh-web.out.log
+user=www
+```
+
+修改后如果 node_modules 已被重装流程弄坏，先手动装一次依赖（用同样的环境变量），再重启服务：
+
+```bash
+cd <DSH checkout 路径>
+sudo -u www env HOME=/home/www CI=true pnpm install    # 等到 Done 且无 ELIFECYCLE 报错
+supervisorctl reread && supervisorctl update && supervisorctl restart dsh-web
+```
+
+> 排障口诀：日志里刷 `[ELIFECYCLE] Command failed with exit code 1` = 正在崩溃循环，真正的报错就在每条刷屏信息的**上方**。
+
 ## ❓ 常见问题
 
 **Q: 面板提示"未配置 frpServerAddr"？**
 A: frp 不像 Cloudflare Quick Tunnel 有公共隧道，必须有自己的 frps 服务器。在面板「设置」页填写 frps 信息并保存（或配置 cordis.patch.yml）；配置前局域网直连仍然可用。
+
+**Q: 本来正常，突然所有设备都连不上 / 全是 403？**
+A: 见上方「🚑 故障排查」章节。九成是进程重启过导致 token 换新、旧 Cookie 失效：无痕窗口重开 `http://<服务器IP>:3081` 或取新 token 拼链接即可；若日志刷 `[ELIFECYCLE]`，按文中 supervisor 两个坑修复。
 
 **Q: 局域网和公网能只开一个吗？**
 A: 可以，两者独立。面板「公网」标签控制 frp 隧道（连接公网 / 断开），「局域网」标签控制局域网直连（开启局域网 / 关闭），互不影响。只开公网时，本地代理切换为「纯转发」模式：自动拦截非环回的私网来源（局域网设备访问返回 403），但隧道流量（经 127.0.0.1 回环）不受影响；只开局域网时则完全不启动 frpc。机器人通道（QQ/Telegram 等）在任一开启时可用，两者都关才停。控制 API 同步支持 `lan:start/lan:stop/tunnel:start/tunnel:stop`。
