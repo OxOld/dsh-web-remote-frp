@@ -179,7 +179,7 @@ config:
 面板第四个标签页「设置」可直接填写并持久化配置：
 
 - **frps 连接**：服务器地址 / 端口 / auth.token / 穿透模式（tcp、http、**https**）
-- **frp TLS 证书**：frpc↔frps 隧道 TLS（开关 / 客户端证书 / 私钥 / CA / serverName）；https 模式访客侧证书（frps vhostHTTPSPort / 域名证书 / 私钥，支持粘贴 PEM 自动落盘）
+- **frp TLS 证书**：frpc↔frps 隧道 TLS（开关 / 客户端证书 / 私钥 / CA / serverName）；https 模式访客侧证书（frps vhostHTTPSPort / 域名证书 / 私钥，支持粘贴 PEM 自动落盘）；**一键生成自签证书**（按已填域名自动 openssl 生成证书+私钥，自动写入配置并重启，有效期 10 年）
 - **tcp 模式**：公网端口；**http 模式**：自定义域名 / subdomain / vhostHTTPPort
 - **frpc 路径 + 一键下载 / 定位文件**：点「一键下载」自动识别当前系统与架构（darwin / linux / windows × amd64 / arm64…），下载对应的 frp 最新版（自动解压）并**自动填入路径**；内置国内加速镜像（fengxiaozi，6 平台直链），下载源顺序：GitHub → 加速镜像 → ghfast；点「定位文件」一键在 Finder / 资源管理器中显示 frpc；若已存在 frpc（配置路径 / PATH / toolsDir）则直接复用，不重复下载
 - **自定义下载地址**：内网 / 自建镜像直连
@@ -233,6 +233,9 @@ A: 确认 frps 配置了 `vhostHTTPPort`、域名已解析到 frps 服务器、�
 
 **Q: 开了 TLS 开关，公网地址怎么还是 http？**
 A: `frpTlsEnable` 及 `transport.tls.*` 证书只加密 **frpc ↔ frps** 之间的隧道（frps 后端看到的仍是 http 代理，这是 frp 的设计，TLS 在传输层不在代理层）。要让**访客浏览器**用上 https，请把「穿透模式」切换为 **https**，填好域名证书（`frpHttpsCertFile` / `frpHttpsKeyFile`，可直接粘贴 PEM），并确认 frps 配置了 `vhostHTTPSPort`。此时生成的 frpc 代理为 `type = "https"`，由 `https2http` 插件在 frpc 端终结 TLS。
+
+**Q: https 模式没有证书怎么办？**
+A: 设置页「frp TLS 证书」分组点「一键生成自签证书」：按「自定义域名」里已填的域名（全部进 SAN）用 openssl 自动生成证书+私钥，自动落盘到 `toolsDir/certs/`、自动填入配置并重启生效（需系统装有 openssl）。自签证书浏览器会提示不安全，点继续访问即可；需要正式绿锁请用 Let's Encrypt 等 CA 签发的证书（粘贴 PEM 或填路径）。
 
 **Q: https 模式打不开 / 浏览器提示证书错误？**
 A: 确认域名已解析到 frps 服务器；`frpHttpsCertFile` 证书的 CN/SAN 与访问域名一致（通配符证书需匹配子域）；frps 已开启 `vhostHTTPSPort` 且防火墙放行该端口。
