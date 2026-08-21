@@ -97,6 +97,39 @@ dsh web
 
 > bundle 方式需重启 DSH；cordis.patch.yml 方式会被 HMR 热加载。
 
+### 插件更新
+
+**在 profile 目录用 pnpm 更新（推荐）**：
+
+```bash
+cd $DSH_HOME/profiles/web
+pnpm update dsh-web-remote-frp --latest
+```
+
+或用 DSH CLI（等效，且自动核对 bundles 登记）：
+
+```bash
+dsh plugin --profile web update dsh-web-remote-frp
+```
+
+> pnpm 11 对刚发布的版本（如几分钟内发布的新版）可能报「新发布包年龄校验」错误，加 `--config.minimumReleaseAge=0` 重试。
+
+**更新后必须重启 DSH**（bundle 变更不支持热加载）：
+
+```bash
+systemctl restart <你的dsh服务>     # systemd 部署
+# 或前台模式：kill 旧进程后重新 pnpm dsh web
+```
+
+**验证版本生效**：
+
+```bash
+cat node_modules/dsh-web-remote-frp/package.json | grep '"version"'
+curl -s http://127.0.0.1:3080/frpremote/info | head -c 300
+```
+
+> `/frpremote/info` 返回的 JSON 含各版本特性字段，可作运行时验证（如 v1.10.0+ 带 `"lan"` / `"tunnel"` 双状态字段）。
+
 ### 3. 配置 frps 地址
 
 在 profile 的 `cordis.patch.yml`（或本包 `cordis.patch.yml`）里给插件加 config：
