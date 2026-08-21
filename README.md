@@ -210,6 +210,31 @@ config:
 
 > 公网访问始终需要 token；「换链接」会重新生成 token。frpc 掉线时面板会提示，点「断开」再「连接公网」即可重连。只开公网时局域网设备会被自动拦截（403）。
 
+## 🖥 命令行控制（无 GUI / 开关被关掉时）
+
+插件控制端点在本机免 token，服务器上直接 curl 即可。**典型场景：局域网开关被关掉、设备连不上时**：
+
+```bash
+# 一键重新开启局域网（返回 JSON 里 "lan":true、"port":3081 即成功）
+curl -s -X POST http://127.0.0.1:3080/frpremote/control \
+  -H 'content-type: application/json' -d '{"action":"lan:start"}'
+
+# 验证状态与端口
+curl -s http://127.0.0.1:3080/frpremote/info | head -c 300
+ss -tlnp | grep -E '308[12]'
+```
+
+全部可用动作（同一端点，替换 `-d` 内容）：
+
+| action | 效果 |
+|--------|------|
+| `lan:start` / `lan:stop` | 开 / 关局域网直连 |
+| `tunnel:start` / `tunnel:stop` | 开 / 关公网 frp 隧道 |
+| `start` / `stop` | 全量启动 / 停止（含机器人通道） |
+| `renew` | 换链接（重新生成 token，保持当前开关状态） |
+
+> 兜底：插件默认 `autoStart: true`，重启 DSH 也会自动开启局域网；且 DSH 本体的 3080 端口始终在局域网可达（无 token 体系），面板永远可以在 `http://<服务器IP>:3080` 的 GUI 里打开。
+
 ## 🛠 面板「设置」页（免改 YAML 配置）
 
 面板第四个标签页「设置」可直接填写并持久化配置：
