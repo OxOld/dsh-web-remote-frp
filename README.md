@@ -32,7 +32,7 @@
 | 🧩 **局域网 / 公网独立开关** | 两者可单独开/关、互不影响；只开公网时代理切「纯转发」模式自动拦截局域网设备；二维码面板内本地 JS 生成（canvas），不依赖任何外部服务 |
 | 🔒 **安全认证** | 每次启动生成随机令牌；HttpOnly Cookie；局域网可免 token |
 | ⚡ **性能加速** | 反向代理自动 gzip 压缩，大历史会话加载更快 |
-| 📱 **侧边栏图标** | 手机快捷按钮常驻侧栏，刷新不消失 |
+| 📱 **设置里的入口** | 在 DSH「设置」弹窗左侧导航列表注入「远程控制」条目（只插入自己的节点），点击打开面板 |
 | 🤖 **六大机器人通道** | 微信 / QQ（NapCat）/ 纸飞机 Telegram / 钉钉 / 飞书 / 企业微信，统一命令路由，面板内一键复制回调地址 |
 
 ## 🚀 快速开始
@@ -146,7 +146,7 @@ curl -s http://127.0.0.1:3080/frpremote/info | head -c 300
         frpRemotePort: 13080     # 公网访问端口
 ```
 
-重启 DSH 后，侧栏出现「📱 远程frp」按钮 → 打开面板即可看到
+重启 DSH 后，打开「设置」弹窗 → 左侧列表底部的「远程控制」→ 打开面板即可看到
 `http://your.vps.example.com:13080/?token=...` 公网链接。
 
 ## ⚙️ 配置项
@@ -175,7 +175,7 @@ curl -s http://127.0.0.1:3080/frpremote/info | head -c 300
 | `frpVhostHTTPSPort` | `443` | https 模式：frps 侧 `vhostHTTPSPort` |
 | `frpHttpsCertFile` | `''` | https 模式访客侧域名证书：文件路径或粘贴 PEM（自动落盘；需匹配域名） |
 | `frpHttpsKeyFile` | `''` | https 模式访客侧域名私钥：文件路径或粘贴 PEM（自动落盘，0600） |
-| `targetPort` | `3080` | DSH 自身端口 |
+| `targetPort` | 自动探测 | DSH 自身端口。留空时取 DSH 实际监听端口（`webServer.port`）；取不到才回退 `3080` |
 | `httpPortStart` | `3081` | 局域网 HTTP 起始端口（自动跳过占用） |
 | `httpsPortStart` | `3082` | 局域网 HTTPS 起始端口 |
 | `qqPortStart` | `3001` | QQ OneBot 桥起始端口 |
@@ -184,6 +184,7 @@ curl -s http://127.0.0.1:3080/frpremote/info | head -c 300
 | `toolsDir` | `''` | 工具与证书缓存目录；留空使用 `$DSH_HOME/tools` |
 | `autoStart` | `true` | 插件加载即自动启动 |
 | `lanOpen` | `true` | 局域网免 token（私网来源放行；公网隧道仍要 token） |
+| `dshSessionAuth` | `''`（自动开启） | 自动适配 DSH 浏览器会话鉴权（见「桌面客户端」章节）；可设 `'true'`/`'false'`，面板「设置」页也可改 |
 
 ### http（域名）模式示例
 
@@ -197,9 +198,76 @@ config:
   frpVhostHTTPPort: 80
 ```
 
+## 🖥 桌面客户端（DeepSeek Harness 桌面版）
+
+桌面客户端（`DeepSeek Harness.exe`）跑的是 `desktop` profile，和命令行 `dsh web` 有两处关键差异，插件已自动适配，**无需改配置**：
+
+**1. DSH 端口不是 3080。** 桌面客户端由 `dsh-desktop-host` 固定传入 `--port 19387`（写死在客户端内），而插件默认的 `targetPort` 曾是 `3080`，代理会把请求转发到没人监听的端口 → 手机端只能看到 `502 bad gateway`。
+现在留空 `targetPort` 时插件直接取 DSH 实际监听端口（`webServer.port`），`dsh web` 用户行为不变；要覆盖仍可显式配置。
+
+**2. 新版 DSH 的 Host 通道要求「浏览器会话」。** 只有 `GET /?token=<launchToken>` 能换取一枚绑定 authority 的签名 cookie，否则 `/`、`/api`、WebSocket 全部返回：
+
+```
+HTTP/1.1 401 Unauthorized
+dsh web authentication required; reopen the URL printed by dsh web.
+```
+
+而 `launchToken` 是每个进程随机生成、只存在内存里的（桌面客户端既不打印也不落盘），手机上拿不到，所以插件给的链接永远停在 401。
+插件现在的做法是**复用 DSH 官方接口**：通过 `connection` 服务的 `authenticatedUrl()` 拿到带 token 的 URL、再用 `authorizeIndex()` 让 **DSH 自己铸 cookie**，然后给所有转发请求（含 WebSocket 升级）带上；上游返回 401 时自动重铸并原样重放一次（仅 GET/HEAD）。
+好处是不硬编码 cookie 格式——DSH 以后换算法/换 cookie 名也不会失效；旧版 DSH 没有 `connection` 服务时静默跳过，行为和以前一致。
+
+**验证方式**：`http://127.0.0.1:<DSH端口>/frpremote/info` 现在会多两个字段：
+
+```bash
+curl -s http://127.0.0.1:19387/frpremote/info
+# "targetPort":19387,"dshSession":"ok"     ← 端口解析正确 + 会话 cookie 已铸签
+# dshSession 取值：ok 已就绪 | none 尚未铸签（首次请求会自动补） | off 已手动关闭
+# "panel":{"stage":"mounted","where":"settings"}   ← 面板入口状态：
+#   settingsItem 设置弹窗导航里的「远程控制」条目是否注入成功
+#   attachTo 注入到哪个容器 | error 挂载异常（带 message）
+```
+
+**入口在哪**：**DSH「设置」弹窗左侧导航列表里的「远程控制」条目**（与「账号与余额 / 通用设置 / 模型 / 内置插件」并列，点击打开面板）。
+设置弹窗是懒渲染的，条目由 MutationObserver 在弹窗打开时注入、React 重渲染把它移除时补回；只往宿主里 append 自己那一个节点，其余一律不动。
+（右下角的悬浮按钮已按用户要求移除，入口只此一个。）点开面板后，顶部第 4 个标签「设置」才是插件自身的配置入口。
+
+> **重要约束：只插入自己的节点，绝不改写宿主的任何东西。** 早期版本为了把按钮"挤进"侧栏，
+> 改写了容器与兄弟按钮的行内样式，踩了两个真实的坑：① 被改写的侧栏底部（账号/设置区）原有内容被挤没；
+> ② 插入点整块区域被祖先裁掉 → 上报"已插入"但界面上什么都没有。
+> 现在的规则是：`insertBefore` 自己的按钮 → 命中测试（`document.elementFromPoint`）确认真的可见 →
+> 不可见就撤销自己的节点。测试第 14 项会断言导航容器/原有导航项的行内样式与子节点数量都没被动过。
+
+**为什么桌面端的面板能出来（实现要点，改代码前务必读）**：桌面客户端主窗口加载的是 `dsh-app://app/`，
+index.html 由安装包静态 dist 直出，`webServer.tapIndex` 的函数变换**永远过不去**（同机 `dsh-whale-widget`
+的实测结论）。所以插件用两条官方通道并存：
+
+| 通道 | 覆盖 | 说明 |
+|---|---|---|
+| `webserver/index-inject` 结构化行 | 桌面 + web | `{kind:'script', placement:'body', text: INJECT_SCRIPT}`，**桌面端唯一生效的通道**；注入表在宿主 ready 时只收集一次，因此必须在 `apply()` 里**同步**注册（放进 `ctx.inject` 回调会错过） |
+| `webServer.tapIndex` | 仅 web | 先检查 HTML 里有没有 `__frprmBooted`，有就跳过 → 与结构化行天然去重 |
+
+两条通道都到位时，由页内 `window.__frprmBooted` 守卫保证脚本只执行一次。
+
+**面板里也能看、也能改**：点开面板，状态行下方常驻一行生效诊断：
+
+```
+上游 127.0.0.1:19387 · DSH 会话 已就绪
+```
+
+「设置」页新增分组 **远程适配（高级，一般不用改）**：
+
+| 字段 | 说明 |
+|---|---|
+| DSH 上游端口 | 留空 = 自动探测（输入框占位符会显示当前解析到的端口）；填了就固定用它 |
+| DSH 会话适配 | `自动`（推荐，默认开启）/ `强制开启` / `关闭（旧版行为）` |
+
+改完点「保存并重启」即可，写入 `toolsDir/frp-config.json`，无需碰 YAML。
+
+> 桌面客户端安装/更新插件后**需要重启客户端**：bundle 注册表变更不走热加载。重启会换发新的 `launchToken`，但会话 cookie 由持久化密钥签发，无需重新扫码。
+
 ## 📱 使用方法
 
-1. 启动后侧栏出现「📱 远程frp」按钮
+1. 打开「设置」弹窗 → 左侧导航列表底部的「远程控制」条目
 2. 点击 → 面板显示运行状态（局域网 / 公网 双指示灯）
 3. 「公网」标签：**连接公网 / 断开**（控制 frp 隧道）
    「局域网」标签：**开启局域网 / 关闭**（控制局域网直连）
