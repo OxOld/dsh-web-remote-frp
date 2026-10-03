@@ -9,7 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert';
 import { createHash, createHmac } from 'node:crypto';
-import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe, FRP_MIRROR_URLS, findFreePort, apply } from '../lib/index.mjs';
+import { Readable } from 'node:stream';
+import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe, FRP_MIRROR_URLS, findFreePort, apply, downloadFile, tmpDownloadPath } from '../lib/index.mjs';
 
 // ─────────── 机器人通道纯函数断言 ───────────
 {
@@ -622,6 +623,94 @@ console.log('13. findFreePort skips occupied ports (wildcard + loopback), respec
   } finally {
     if (prevHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = prevHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+}
+
+// ─────────── 16. 下载路径绝不把宿主打死（EPERM / EBUSY 回归）───────────
+// 事故现场：压缩包被另一个进程持有时（另一个 DSH 实例正在下载 / 杀软扫描），
+// fs.createWriteStream 的异步 open 失败会 emit 'error' 事件；旧实现没挂监听器
+// → uncaughtException → DSH 宿主 fatal 退出（表现为"应用无法启动"）。
+// 旧实现的 http 'error' 回调里还有裸 fs.rmSync，EPERM 同样致命。
+{
+  const dir16 = fs.mkdtempSync(path.join(os.tmpdir(), 'frprm-dl-'));
+  const uncaught = [];
+  const onUncaught = (e) => uncaught.push(e);
+  process.on('uncaughtException', onUncaught);
+  // 假请求：req 是带 on/setTimeout/destroy 的桩；res 用 Readable 冒充 IncomingMessage
+  const fakeRequest = (script) => {
+    const fn = (url, opts, cb) => {
+      const req = {
+        on(ev, handler) { if (ev === 'error' && script.error) setTimeout(() => handler(script.error), 0); return req; },
+        setTimeout() { return req; },
+        destroy() { return req; },
+      };
+      if (script.status) {
+        const res = Readable.from(script.chunks || [Buffer.from('')]);
+        res.statusCode = script.status;
+        res.headers = script.headers || {};
+        setTimeout(() => cb(res), 0);
+      }
+      return req;
+    };
+    return fn;
+  };
+  const settle = (p) => Promise.race([
+    p.then(() => 'resolved', (e) => 'rejected:' + String((e && e.code) || (e && e.message) || e)),
+    new Promise((r) => setTimeout(() => r('TIMEOUT(永不 settle)'), 3000)),
+  ]);
+  try {
+    // 16a. 目标目录不存在（= open 失败）→ 必须干净 reject，不能是 uncaught + 永不 settle
+    const missing = path.join(dir16, 'no-such-dir', 'frp.zip');
+    const r16a = await settle(downloadFile('https://x/1', missing, 0, fakeRequest({ error: new Error('net down') })));
+    assert.ok(String(r16a).startsWith('rejected:'), '16a: open 失败应 reject，实际 ' + r16a);
+
+    // 16b. 正常下载 → 落到最终路径且内容正确，过程文件不残留
+    const ok = path.join(dir16, 'frp-ok.zip');
+    const r16b = await settle(downloadFile('https://x/2', ok, 2, fakeRequest({ status: 200, chunks: [Buffer.from('PK\u0003\u0004hello')] })));
+    assert.strictEqual(r16b, 'resolved', '16b: 正常下载应成功');
+    assert.strictEqual(fs.readFileSync(ok, 'utf8'), 'PK\u0003\u0004hello', '16b: 内容正确');
+    assert.deepStrictEqual(fs.readdirSync(dir16).filter((n) => n.includes('.part-')), [], '16b: 无 .part 残留');
+    console.log('16a/16b. open 失败只 reject 不炸宿主 + 正常下载落盘 OK');
+
+    // 16c. HTTP 非 200 → reject 且不产出文件
+    const bad = path.join(dir16, 'frp-500.zip');
+    const r16c = await settle(downloadFile('https://x/3', bad, 0, fakeRequest({ status: 500 })));
+    assert.strictEqual(r16c, 'rejected:download failed: HTTP 500', '16c: 应带 HTTP 状态 reject');
+    assert.strictEqual(fs.existsSync(bad), false, '16c: 不应产出文件');
+
+    // 16d. 落盘失败（最终路径是已存在目录）→ reject，不炸，不残留
+    const asDir = path.join(dir16, 'frp-is-dir.zip');
+    fs.mkdirSync(asDir);
+    const r16d = await settle(downloadFile('https://x/4', asDir, 0, fakeRequest({ status: 200, chunks: [Buffer.from('x')] })));
+    assert.ok(String(r16d).startsWith('rejected:'), '16d: rename 失败应 reject，实际 ' + r16d);
+    assert.deepStrictEqual(fs.readdirSync(dir16).filter((n) => n.includes('.part-')), [], '16d: 无 .part 残留');
+
+    // 16e. 302 跟随
+    const redir = path.join(dir16, 'frp-redirect.zip');
+    let calls = 0;
+    const reqFn = fakeRequest({ status: 200, chunks: [Buffer.from('final')] });
+    const firstFn = (url, opts, cb) => {
+      calls += 1;
+      if (calls === 1) return fakeRequest({ status: 302, headers: { location: 'https://x/final' } })(url, opts, cb);
+      return reqFn(url, opts, cb);
+    };
+    const r16e = await settle(downloadFile('https://x/5', redir, 0, firstFn));
+    assert.strictEqual(r16e, 'resolved', '16e: 302 应跟随');
+    assert.strictEqual(fs.readFileSync(redir, 'utf8'), 'final', '16e: 重定向后内容正确');
+    console.log('16c/16d/16e. HTTP 错误 / 落盘失败 / 302 跟随 OK');
+
+    // 16f. 过程文件名唯一且 ≠ 最终路径（多实例不再抢同一个文件）
+    const t1 = tmpDownloadPath(ok);
+    const t2 = tmpDownloadPath(ok);
+    assert.notStrictEqual(t1, t2, '16f: 临时名必须唯一');
+    assert.notStrictEqual(t1, ok, '16f: 临时名不得等于最终路径');
+    assert.strictEqual(path.dirname(t1), path.dirname(ok), '16f: 同目录（rename 才是同卷原子操作）');
+
+    assert.deepStrictEqual(uncaught.map((e) => (e && e.code) + ' ' + (e && e.syscall)), [], '16: 全程不得有 uncaughtException');
+    console.log('16. 下载路径不再打死宿主（EPERM/EBUSY 回归）OK');
+  } finally {
+    process.removeListener('uncaughtException', onUncaught);
+    fs.rmSync(dir16, { recursive: true, force: true });
   }
 }
 

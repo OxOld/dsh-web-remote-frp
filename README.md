@@ -265,6 +265,36 @@ index.html 由安装包静态 dist 直出，`webServer.tapIndex` 的函数变换
 
 > 桌面客户端安装/更新插件后**需要重启客户端**：bundle 注册表变更不走热加载。重启会换发新的 `launchToken`，但会话 cookie 由持久化密钥签发，无需重新扫码。
 
+### ⚠️ frpc 自动下载：曾把客户端直接搞崩（v1.10.4 修复）
+
+**现象**：桌面客户端启动即弹「应用无法启动或已意外停止」，crash 日志里是：
+
+```
+dsh: fatal uncaught exception: [Error: EPERM: operation not permitted,
+  open 'C:\Users\Cotx\.dsh\tools\frp_0.71.0_windows_amd64.zip']
+```
+
+**根因**：`frpcPath` 留空且 `toolsDir` 里没有 `frpc.exe` 时，插件会在启动时自动下载压缩包。
+旧实现把压缩包**直接写到最终路径**，而这里有两个没有接住的抛出点：
+
+1. `fs.createWriteStream(dest)` 的 open 是**异步**的，失败时以 `'error'` 事件抛出；
+   旧实现没挂 `error` 监听器 → 变成 `uncaughtException` → DSH 宿主 fatal 退出。
+2. 网络 `error` 回调里的 `fs.rmSync(dest, { force: true })` 没有保护，文件被占用时抛 `EPERM`，同样致命。
+
+**触发条件**：同一个压缩包路径被第二个进程持有——两个 DSH 实例同时启动/重启，
+或者杀软正在扫描刚下完的文件。此时后启动的那个实例不是"报错"，而是**整个宿主进程死掉**。
+
+**修复方式**（改这块代码时请保留这些不变量）：
+
+- 下载一律先写「同目录 + pid + 随机后缀」的临时文件，成功后再 `renameSync` 原子改名；
+  任何失败只 `reject` 并删掉临时文件，**绝不 emit 未处理的 error**。
+- 所有 `rmSync` 走 `safeRm()`（吞掉 EPERM/EBUSY）。
+- 归档名与解压目录也带随机后缀，多实例不再共用同一个路径；同进程内 `downloadFrpc` 单飞。
+- `cleanupStaleDownloads()` 会清掉 10 分钟前的 `frp-download-*` / `frp-extract-*` / `frp_x.y.z_*` 残留
+  （含旧版本直接落在 `toolsDir` 的压缩包），被占用就跳过。
+- 如果你想手动放一个 frpc：把 `frpc.exe` 丢进 `toolsDir`，或在设置页填 `frpc 可执行文件路径`，
+  就完全不会走下载逻辑。
+
 ## 📱 使用方法
 
 1. 打开「设置」弹窗 → 左侧导航列表底部的「远程控制」条目
