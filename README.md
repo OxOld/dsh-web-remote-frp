@@ -295,6 +295,42 @@ dsh: fatal uncaught exception: [Error: EPERM: operation not permitted,
 - 如果你想手动放一个 frpc：把 `frpc.exe` 丢进 `toolsDir`，或在设置页填 `frpc 可执行文件路径`，
   就完全不会走下载逻辑。
 
+### 🐢 远程访问"慢 / 断断续续"的实测结论（v1.10.5）
+
+这不是插件的问题，而是**链路 + frp 默认配置**的问题。实测数据（某真实环境，手机经 frp 访问桌面端 DSH）：
+
+| 场景 | 吞吐 |
+|---|---|
+| 到国内 CDN，**单条 TCP 连接** | 2.6 Mbps |
+| 到国内 CDN，**4 条独立 TCP 连接** | **10.0 Mbps**（4 倍叠加） |
+| 经 frp 隧道（1 条复用 TCP），1 条或 4 条并发流 | 0.9 Mbps（**完全不叠加**） |
+| 局域网直连（对照） | 48 MB/s |
+
+三个关键推论：
+
+1. **瓶颈是"单条 TCP 连接的吞吐"，不是带宽上限**。很多线路（尤其家宽/CPE/跨境）单连接只能跑 2~3 Mbps，但多连接能叠加到 10 Mbps 以上——这也解释了为什么"测速软件显示 1MB/s"却还是慢：测速用的是多连接。
+2. **frp 默认 `transport.tcpMux = true`**，把客户端所有连接复用进**同一条 TCP**，于是浏览器开再多并发也只能分到那 2~3 Mbps。
+3. **DSH 的 WebSocket 每 2 秒发一次 ping，约 5 秒收不到 pong 就断开连接**（客户端全部交互都走 `/api/remote.mux` 这一条 WS）。首屏要搬 ~10MB bundle，把那条复用 TCP 占满时，ping/pong 被排队到数百 ms~1s 以上，偶发超过 5 秒 → 服务端掐连接 → 客户端自动重连 → 界面上就是"模型选择/会话列表加载成功一下又开始加载"。
+
+**解决办法（需要你在 frps 服务器上一起改）**：
+
+```toml
+# frps.toml 和 frpc.toml 里都要有，且必须一致！只改一边会直接连不上
+transport.tcpMux = false
+```
+
+- 服务端：改 `frps.toml` → 重启 frps。
+- 客户端：面板「设置」→ **远程适配（高级）** → `TCP 多路复用` 选「关闭（并发带宽更高，需 frps 同步配置）」→ 保存并重启。
+- 官方文档：[通信安全及优化 · TCP 多路复用](https://gofrp.org/zh-cn/docs/features/common/network/network/)（原文："该配置项在服务端和客户端必须一致"）。
+
+关掉多路复用后：每个浏览器连接各自走一条 TCP，能吃上并发叠加（首屏快数倍），而且 **WS 有自己的 TCP 连接**，不再被大文件下载顶死，ping/pong 恢复到 RTT 级别（实测 15ms），"断断续续"消失。
+
+顺带的两项优化（v1.10.5 内置，无需配置）：
+
+- WS 升级桥两侧启用 `setNoDelay`，避免小帧被 Nagle 攒着（对 ping/pong 敏感）。
+- 压缩从 gzip 升级为 **br（brotli）优先**：文本体积再小 ~25%，并补上 `Vary: accept-encoding`。
+  注意：**主流浏览器（Chrome 等）只在 HTTPS 下才声明 `br`**，所以纯 HTTP 的隧道访问实际仍是 gzip；要用上 brotli 得走 https 模式或局域网 HTTPS（3082）。
+
 ## 📱 使用方法
 
 1. 打开「设置」弹窗 → 左侧导航列表底部的「远程控制」条目

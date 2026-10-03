@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert';
 import { createHash, createHmac } from 'node:crypto';
+import { brotliDecompressSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs, buildFrpcToml, computeFrpUrl, normalizeDomains, verifyDingtalkSign, feishuEncrypt, feishuDecrypt, wecomSignature, wecomEncrypt, wecomDecrypt, xmlExtract, makeDedupe, FRP_MIRROR_URLS, findFreePort, apply, downloadFile, tmpDownloadPath } from '../lib/index.mjs';
 
@@ -159,6 +160,14 @@ const QQ_PORT = 18083;
   assert.ok(!tomlHttps.includes('localIP'), 'no localIP in plugin mode');
   console.log('0b3. buildFrpcToml(https/https2http) OK');
 
+  // 0b4. tcpMux：只在显式配置时输出（说明：frps.toml 必须与之一致，不一致会连不上）
+  assert.ok(!toml.includes('transport.tcpMux'), 'tcpMux 默认不输出（沿用 frp 默认：开启）');
+  const tomlMuxOff = buildFrpcToml({ serverAddr: 's', serverPort: 7000, proxyName: 'p', proxyType: 'tcp', localPort: 1, remotePort: 2, tcpMux: false });
+  assert.ok(tomlMuxOff.includes('transport.tcpMux = false'), 'tcpMux=false 应写出');
+  const tomlMuxOn = buildFrpcToml({ serverAddr: 's', serverPort: 7000, proxyName: 'p', proxyType: 'tcp', localPort: 1, remotePort: 2, tcpMux: true });
+  assert.ok(tomlMuxOn.includes('transport.tcpMux = true'), 'tcpMux=true 应写出');
+  console.log('0b4. buildFrpcToml(tcpMux) OK');
+
   assert.strictEqual(
     computeFrpUrl({ frpProxyType: 'tcp', frpServerAddr: '1.2.3.4', frpRemotePort: 13080 }),
     'http://1.2.3.4:13080',
@@ -255,6 +264,7 @@ await new Promise((res, rej) => {
 });
 
 // 4. gzip 大响应
+let gzipSize = 0;
 await new Promise((res, rej) => {
   http.get({ host: '127.0.0.1', port: HTTP_PORT, path: '/big', headers: { Cookie: cookie, 'Accept-Encoding': 'gzip' } }, r => {
     let d = Buffer.alloc(0);
@@ -263,6 +273,41 @@ await new Promise((res, rej) => {
       console.log('4. gzip status:', r.statusCode, 'encoding:', r.headers['content-encoding'], 'size:', d.length, '(expect gzip, <100000)');
       assert.strictEqual(r.headers['content-encoding'], 'gzip');
       assert.ok(d.length < 100000);
+      gzipSize = d.length;
+      res();
+    });
+  }).on('error', rej);
+});
+
+// 4b. brotli：客户端声明 br 时优先 brotli（体积应小于 gzip），内容可还原，并带 Vary
+await new Promise((res, rej) => {
+  http.get({ host: '127.0.0.1', port: HTTP_PORT, path: '/big', headers: { Cookie: cookie, 'Accept-Encoding': 'br, gzip' } }, r => {
+    const chunks = [];
+    r.on('data', c => chunks.push(c));
+    r.on('end', () => {
+      const d = Buffer.concat(chunks);
+      const text = brotliDecompressSync(d).toString('utf8');
+      console.log('4b. brotli encoding:', r.headers['content-encoding'], '传输', d.length, 'B < gzip', gzipSize, 'B，解压后', text.length, 'B');
+      assert.strictEqual(r.headers['content-encoding'], 'br', '4b: 声明 br 应返回 brotli');
+      assert.ok(String(r.headers.vary || '').toLowerCase().includes('accept-encoding'), '4b: 压缩响应必须带 Vary');
+      assert.strictEqual(text.length, 100000, '4b: 解压后应完整还原');
+      assert.strictEqual(text, 'x'.repeat(100000), '4b: 内容必须逐字节一致');
+      assert.ok(d.length < gzipSize, '4b: brotli 应小于 gzip(' + gzipSize + ')，实际 ' + d.length);
+      console.log('4b. brotli 内容逐字节一致 OK');
+      res();
+    });
+  }).on('error', rej);
+});
+
+// 4c. 不支持 br 也不支持 gzip → 明文原样返回
+await new Promise((res, rej) => {
+  http.get({ host: '127.0.0.1', port: HTTP_PORT, path: '/big', headers: { Cookie: cookie, 'Accept-Encoding': 'identity' } }, r => {
+    let n = 0;
+    r.on('data', c => n += c.length);
+    r.on('end', () => {
+      assert.strictEqual(r.headers['content-encoding'], undefined, '4c: identity 时不得压缩');
+      assert.strictEqual(n, 100000, '4c: 应为未压缩的完整响应');
+      console.log('4c. identity 不压缩（', n, 'B）OK');
       res();
     });
   }).on('error', rej);
